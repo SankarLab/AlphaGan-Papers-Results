@@ -1,0 +1,18 @@
+{
+  "logger": {
+    "title": "Remote Sync"
+  },
+  "uploadOnSave": true,
+  "useAtomicWrites": true,
+  "deleteLocal": true,
+  "hostname": "agave.asu.edu",
+  "target": "alphaGAN",
+  "ignore": [
+    ".remote-sync.json",
+    ".git/**"
+  ],
+  "username": "kotstot",
+  "password": "Parker2021*",
+  "watch": [],
+  "transport": "scp"
+}
