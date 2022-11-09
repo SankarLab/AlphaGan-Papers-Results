@@ -1,11 +1,11 @@
 #!/bin/bash
 
 ##SBATCH -N 1
-#SBATCH -p publicgpu
+#SBATCH -p htcgpu
 #SBATCH --gres=gpu:1
 #SBATCH -n 8
-#SBATCH -q wildfire                     # Run job under wildfire QOS queue
-#SBATCH -t 00-08:00                     # wall time (D-HH:MM)
+#SBATCH -q normal                     # Run job under wildfire QOS queue
+#SBATCH -t 00-4:00                     # wall time (D-HH:MM)
 #SBATCH -o experiment1/outputs/%j.out                  # STDOUT (%j = JobId)
 #SBATCH -e experiment1/outputs/%j.err                  # STDERR (%j = JobId)
 #SBATCH --mail-type=ALL                 # Send a notification when a job starts, stops, or fails
