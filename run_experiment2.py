@@ -4,7 +4,7 @@ import os
 import csv
 import argparse
 
-parser = argparse.ArgumentParser(description='Run (aD, aG)-GAN Experiment #1: 2D Ring')
+parser = argparse.ArgumentParser(description='Run (aD, aG)-GAN Experiment #2: Stacked MNIST')
 parser.add_argument('--sbatch', action='store_true', help='run parameter grid on sbatch')
 parser.add_argument('--no_reset', action='store_true', help='don\'t clear the results directory')
 parser.set_defaults(sbatch=False, no_reset=False)
@@ -20,27 +20,30 @@ if not args.no_reset:
     os.mkdir('experiment/outputs')
     os.mkdir('experiment/data')
 
+    row = ['Setting', 'Seed', 'FID Score']
+    for conf in [i/10 for i in range(10)]:
+        for mode in [1,3,5,10]:
+            row.append(str(conf) + '-' + str(mode))
+    row += ['Epochs', 'Modes', 'FIDs']
+
     with open('experiment/metrics.csv', 'w') as f:
         writer = csv.writer(f)
-        writer.writerow(['Setting', 'Seed',
-            'Modes', 'HQS', 'KL', 'RKL', 'JSD', 'TVD'])
+        writer.writerow(row)
 
 # String of args for single use
-single_params = '--seed 1 --n_epochs 3 --save_bursts --epoch_step 1'
+single_params = '--seed 1 --non_saturating --save_bursts --n_epochs 3 --epoch_step 1'
 
 # Grid of hyperparameters for sbatch
 grid = {
-    'seed' : list(range(1,201)),
-    'dataset' : ['polar'],
+    'seed' : list(range(1,101)),
     'non_saturating' : [True],
-    'd_layers' : [4],
-    'g_layers' : [4],
-    #'d_alpha' : [1],
-    #'g_alpha' : [1],
-    'ls_gan' : [True],
-    'epoch_step' : [400],
-    #'save_grads' : [True],
+    'n_epochs' : [200],
+    'epoch_step' : [10],
+    'g_lr' : [5e-4],
+    'g_alpha' : [1],
+    'ls_gan' : [True]
 }
+
 
 # Utility function
 def make_sbatch_params(grid):
@@ -64,9 +67,9 @@ if args.sbatch:
     print(len(sbatch_params), 'jobs will be submitted.')
 
     for params in sbatch_params:
-        os.system('sbatch run_experiment1.sh \'' + params + '\'')
+        os.system('sbatch run_experiment2.sh \'' + params + '\'')
 
 else:
 
     print('Interactive mode.')
-    os.system('python3 experiment1.py ' + single_params)
+    os.system('python3 experiment2.py ' + single_params)

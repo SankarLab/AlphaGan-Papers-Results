@@ -15,6 +15,7 @@ from sklearn.metrics import confusion_matrix
 
 from matplotlib import pyplot as plt
 
+"""
 class AlphaLoss(torch.nn.Module):
 
     def __init__(self, alpha):
@@ -28,6 +29,7 @@ class AlphaLoss(torch.nn.Module):
         fake_term = -A * ((1 - label) * (1 - output) ** (1/A))
         loss = torch.mean(real_term + fake_term)
         return loss
+"""
 
 class GAN:
 
@@ -54,7 +56,7 @@ class GAN:
         self.d_criterion = criteria[0].to(self.device)
         self.g_criterion = criteria[1].to(self.device)
 
-        self.metrics = {'epochs' : [], 'modes' : [], 'hqs' : []}
+        self.metrics = {}
 
 
     def train_discriminator(self, real_data, fake_data):
@@ -80,8 +82,6 @@ class GAN:
 
     def train_generator(self, fake_data, flip=False):
 
-        #fake_data = Variable(fake_data, requires_grad=True)
-
         b_size = fake_data.shape[0]
         self.g_optimizer.zero_grad()
 
@@ -99,37 +99,12 @@ class GAN:
 
         return float(loss)
 
-    def generator_grads(self, fake_data, flip=False):
-
-        fake_data = Variable(fake_data, requires_grad=True)
-
-        b_size = fake_data.shape[0]
-        self.g_optimizer.zero_grad()
-
-        # Generator tries to maximize the value function
-        output = self.discriminator(fake_data)
-
-        if flip:
-            loss = self.g_criterion(output, torch.ones(b_size,1).to(self.device))
-        else:
-            loss = -self.g_criterion(output, torch.zeros(b_size,1).to(self.device))
-
-        loss.backward()
-
-        return fake_data.grad.data
-
-
-    def train_loop(self, train_d=True, train_g=True, flip=False, count=-1, epoch=1):
+    def train_loop(self, train_d=True, train_g=True, flip=False, epoch=1):
 
         d_losses, g_losses = [], []
 
-        self.all_grads = None
-
         for i, (noise_data, real_data) in enumerate(tqdm(zip(self.train_noise_loader, self.train_real_loader),
                                                                     total=len(self.train_noise_loader))):
-
-            if 0 <= count <= i:
-                break
 
             # Send to GPU
             noise_data, real_data = noise_data.to(self.device), real_data.to(self.device)
@@ -140,19 +115,8 @@ class GAN:
             d_losses.append(
                     self.train_discriminator(real_data, fake_data.detach()) if train_d else -1)
 
-            grads = self.generator_grads(fake_data, flip=flip)
-
             g_losses.append(
                     self.train_generator(fake_data, flip=flip) if train_d else -1)
-
-
-            self.all_grads = grads if self.all_grads is None else torch.concat((self.all_grads, grads), dim=0)
-
-
-        #plt.scatter(all_grads[:,0], all_grads[:,1], s=0.2, alpha=0.5)
-        #plt.savefig('experiment1/grads/epoch-' + str(epoch) + '.png')
-        #plt.close()
-
 
         d_loss, g_loss = np.mean(d_losses), np.mean(g_losses)
 
@@ -163,18 +127,11 @@ class GAN:
         self.discriminator.train()
         self.generator.train()
 
-        limit_dict = {'1' : 48, '5' : 20, '6' : 17, '8' : 81, '9' : 19}
-        limit = 0#limit_dict[str(seed)]
-
         for epoch in range(1, n_epochs+1):
-
-            #if epoch > limit:
-                #self.criterion = AlphaLoss(0.2)
 
             print('Epoch', epoch)
 
             d_loss, g_loss = self.train_loop(train_d=True, train_g=True, flip=flip, epoch=epoch)
-            #_, g_loss = self.train_loop(train_d=False, train_g=True, count=5)
 
             if epoch % epoch_step == 0:
 
@@ -187,13 +144,6 @@ class GAN:
                 self.evaluate()
 
                 make_data(self, epoch)
-
-                # Draw snapshot of generated output
-                #if epoch >= limit and make_burst is not None:
-                    #make_burst(self, epoch)
-
-
-
 
     def evaluate(self):
 
@@ -214,7 +164,6 @@ class GAN:
                 features = torch.cat((real_data, self.generator(noise_data)), dim=0)
                 labels += [1] * b_size + [0] * b_size
                 pred = torch.round(self.discriminator(features)).reshape(-1).detach().cpu().tolist()
-                #print(pred)
                 preds += pred
 
         # Compute metrics
@@ -246,11 +195,13 @@ class GAN:
         return output
 
     def get_real_output(self):
-        return torch.Tensor([list(t.numpy()) for t in self.test_real_loader.dataset])
+        return torch.concat([t.reshape(1, *t.shape) for t in self.test_real_loader.dataset], dim=0).to(self.device)
 
     def get_decisions(self):
 
-        limit = 5 if self.dataset_name == 'lattice' else 2
+        assert self.dataset_name in ['2Dgrid', '2Dring'] # For 2D datasets only
+
+        limit = 5 if self.dataset_name == '2Dgrid' else 2
 
         xs = torch.linspace(-limit, limit, steps=100)
         ys = torch.linspace(-limit, limit, steps=100)
