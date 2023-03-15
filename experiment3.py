@@ -14,6 +14,8 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 import torchvision.models as models
 from torch.utils.data import DataLoader
+import torchvision.utils as vutils
+from tqdm import tqdm
 import numpy as np
 from scipy.linalg import sqrtm
 import matplotlib.pyplot as plt
@@ -36,15 +38,16 @@ parser.add_argument('--seed', type=int, default=1, help='random seed')
 parser.add_argument('--train_test_split', type=float, default=0.8, help='percentage of train samples')
 parser.add_argument('--noise_dim', type=int, default=100, help='dimensionality of latent noise vectors')
 parser.add_argument('--batch_size', type=int, default=128, help='batch size used during training/testing')
+parser.add_argument('--num_workers', type=int, default=1, help='number of workers for data loaders')
 parser.add_argument('--save_bursts', action='store_true', help='saves the plotted output bursts for each checkpoint')
 parser.set_defaults(save_bursts=False)
 
 # Training
 parser.add_argument('--n_epochs', type=int, default=50, help='number of epochs for training')
 parser.add_argument('--epoch_step', type=int, default=51, help='number of epochs between validation checkpoints')
-parser.add_argument('--d_lr', type=float, default=1e-3, help='learning rate for discriminator')
-parser.add_argument('--g_lr', type=float, default=1e-3, help='learning rate for generator')
-parser.add_argument('--d_width', type=int, default=1, help='channel multiplier for discriminator')
+parser.add_argument('--d_lr', type=float, default=1e-4, help='learning rate for discriminator')
+parser.add_argument('--g_lr', type=float, default=1e-4, help='learning rate for generator')
+parser.add_argument('--d_width', type=int, default=64, help='channel multiplier for discriminator')
 parser.add_argument('--g_width', type=int, default=64, help='channel multiplier for generator')
 parser.add_argument('--beta1', type=float, default=0.9, help='beta1 parameter for adam optimization')
 
@@ -56,6 +59,10 @@ parser.add_argument('--ls_gan', action='store_true', help='uses LS GAN loss func
 parser.set_defaults(non_saturating=False, ls_gan=False)
 
 args = parser.parse_args()
+
+# DELETE
+args.d_lr = args.g_lr
+args.d_alpha = args.g_alpha
 
 # PATHS
 
@@ -94,12 +101,17 @@ def make_noise(data_size):
     data_loader = DataLoader(data, batch_size=args.batch_size, shuffle=True)
     return data_loader
 
-transform_data = transforms.Compose([
+print('Loading Celeb-A dataset...')
+data_iter = iter(tqdm(range(len(os.listdir('data/CelebA/img_align_celeba')))))
+def transform_data(x):
+    global data_iter
+    next(data_iter)
+    return (transforms.Compose([
                                transforms.Resize(64),
                                transforms.CenterCrop(64),
                                transforms.ToTensor(),
-                               #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-                               ])
+                               transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                               ])(x))
 
 full_data = [x for x, _ in list(datasets.ImageFolder(root='data/CelebA', transform=transform_data))]
 train_size = int(args.train_test_split * len(full_data))
@@ -160,34 +172,6 @@ class Generator(nn.Module):
         x = x.reshape(x.shape[0], x.shape[1], 1, 1)
         return self.main(x)
 
-"""
-class Generator(nn.Module):
-    def __init__(self):
-        super(Generator, self).__init__()
-
-        self.main = nn.Sequential(
-            nn.ConvTranspose2d(100, args.g_width * 32, 3, stride=2, bias=False),
-            nn.BatchNorm2d(args.g_width * 32),
-            nn.ReLU(True),
-
-            nn.ConvTranspose2d(args.g_width * 32, args.g_width * 16, 3, stride=2, bias=False),
-            nn.BatchNorm2d(args.g_width * 16),
-            nn.ReLU(True),
-
-            nn.ConvTranspose2d(args.g_width * 16, args.g_width * 8, 3, stride=2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(args.g_width * 8),
-            nn.ReLU(True),
-
-            nn.ConvTranspose2d(args.g_width * 8, 3, 3, stride=2, padding=1, output_padding=1, bias=False),
-            nn.Tanh()
-        )
-
-    def forward(self, x):
-        x = x.reshape(x.shape[0], x.shape[1], 1, 1)
-        out = self.main(x)
-        return out
-"""
-
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
@@ -216,33 +200,6 @@ class Discriminator(nn.Module):
     def forward(self, x):
         out = self.sig(self.main(x))
         return out.reshape(-1,1)
-
-"""
-class Discriminator(nn.Module):
-    def __init__(self):
-        super(Discriminator, self).__init__()
-
-        self.main = nn.Sequential(
-            nn.Conv2d(3, args.d_width * 8, 3, stride=2, padding=1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(args.d_width * 8, args.d_width * 16, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(args.d_width * 16),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(args.d_width * 16, args.d_width * 32, 3, stride=2, bias=False),
-            nn.BatchNorm2d(args.d_width * 32),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.Conv2d(args.d_width * 32, 1, 3, stride=2, bias=False),
-        )
-
-        self.sig = (lambda x: x) if args.ls_gan else nn.Sigmoid()
-
-    def forward(self, x):
-        out = self.sig(self.main(x))
-        return out.reshape(-1,1)
-"""
 
 # Define instances
 generator = Generator()
@@ -279,9 +236,35 @@ class LSLoss(nn.Module):
     def forward(self, output, labels):
         return 0.5 * torch.mean((output - labels) ** 2)
 
+class DensityLoss(nn.Module):
+
+    def __init__(self):
+        super(DensityLoss, self).__init__()
+
+    def forward(self, gen=None, disc=None):
+
+        if gen is not None:
+            real_output, fake_output = gen
+
+            u1, v1 = real_output.mean(), real_output.var()
+            u2, v2 = fake_output.mean(), fake_output.var()
+        else:
+            output, u1, v1 = disc
+            u2, v2 = output.mean(), output.var()
+
+        loss =  0.5 * (((u1 - u2) ** 2 / v2) + torch.log(2*np.pi*v2) + (v1/v2))
+
+        if loss < 0:
+            print(u1, v1, u2, v2)
+            print(((u1 - u2) ** 2 / v2), torch.log(2*np.pi*v2), (v1/v2))
+            print(loss)
+            exit()
+        return loss
+
+
 if args.ls_gan:
-    d_criterion = LSLoss()
-    g_criterion = LSLoss()
+    d_criterion = DensityLoss()#LSLoss()
+    g_criterion = DensityLoss()#LSLoss()
 else:
     d_criterion = nn.BCELoss() if args.d_alpha == 1 else AlphaLoss(args.d_alpha)
     g_criterion = nn.BCELoss() if args.g_alpha == 1 else AlphaLoss(args.g_alpha)
@@ -290,12 +273,11 @@ else:
 
 def make_burst(gan, epoch):
 
-    images = gan.get_fake_output()
+    images = gan.get_fake_output(25)
 
     fig = plt.figure(figsize=(10,10))
-    grid = ImageGrid(fig, 111, nrows_ncols=(5,5), axes_pad=0.1)
-    for i in range(25):
-        grid[i].imshow(np.clip(images[i,:, :, :],0,1).transpose(1,2,0))
+
+    plt.imshow(np.transpose(vutils.make_grid(torch.Tensor(images), nrow=5, padding=2, normalize=True),(1,2,0)))
 
     plt.title('Epoch ' + str(epoch))
     plt.savefig(paths['bursts'] + 'epoch-' + str(epoch) + '.png')
@@ -348,23 +330,30 @@ def compute_metrics(gan, epoch):
 
     # Get real & generated output
     real_images = gan.get_real_output()
-    fake_images = torch.Tensor(gan.get_fake_output()).to(gan.device)
+    fake_images = torch.Tensor(gan.get_fake_output())
+
+    real_loader = DataLoader([real_images[i,:] for i in range(real_images.shape[0])],
+                        batch_size=args.batch_size, shuffle=False)
+    fake_loader = DataLoader([fake_images[i,:] for i in range(fake_images.shape[0])],
+                        batch_size=args.batch_size, shuffle=False)
 
     # FID Score
     global inception_model
+
     inception_model = inception_model.to(gan.device)
     preprocess = models.inception.Inception_V3_Weights.IMAGENET1K_V1.transforms()
 
     real_features, fake_features = [], []
-    batch_size = 32
 
-    for k in tqdm(range(ceil(len(real_images) / batch_size))):
+    for reals, fakes in tqdm(zip(real_loader, fake_loader), total=len(real_loader)):
 
-        real_batch = preprocess(real_images[batch_size*k:batch_size*(k+1),:,:,:])
-        fake_batch = preprocess(fake_images[batch_size*k:batch_size*(k+1),:,:,:])
-        features = inception_model(torch.concat((real_batch, fake_batch), dim=0))
-        real_features.append(features[:batch_size,:].detach().cpu().numpy())
-        fake_features.append(features[batch_size:,:].detach().cpu().numpy())
+        reals = preprocess(reals).to(gan.device)
+        fakes = preprocess(fakes).to(gan.device)
+        #input = torch.concat((real_batch, fake_batch), dim=0).to(gan.device)
+        #features = inception_model(input)
+
+        real_features.append(inception_model(reals).detach().cpu().numpy())
+        fake_features.append(inception_model(fakes).detach().cpu().numpy())
 
     real_features = np.concatenate(real_features, axis=0)
     fake_features = np.concatenate(fake_features, axis=0)
@@ -415,7 +404,7 @@ gan_model.train(n_epochs=args.n_epochs, epoch_step=args.epoch_step,
                                             )
 
 row = ([setting, args.seed] + gan_model.metrics['last'] + [str(gan_model.metrics['epochs'])]
-        [str(gan_model.metrics['FID'])])
+        + [str(gan_model.metrics['FID'])])
 
 with open('experiment/metrics.csv', 'a') as f:
     writer = csv.writer(f)
