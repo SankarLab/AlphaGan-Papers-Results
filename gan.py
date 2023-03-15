@@ -8,28 +8,14 @@ Kyle Otstot
 """
 
 import torch
+import torch.nn as nn
 from torch.autograd import Variable
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix
+import os
 
 from matplotlib import pyplot as plt
-
-"""
-class AlphaLoss(torch.nn.Module):
-
-    def __init__(self, alpha):
-        super().__init__()
-        self.alpha = alpha
-
-    def forward(self, output, label, ep=1e-7):
-        output = torch.clamp(output, min=ep, max=1 - ep)
-        A = (self.alpha / (self.alpha - 1))
-        real_term = A * (1 - label * (output ** (1/A)))
-        fake_term = -A * ((1 - label) * (1 - output) ** (1/A))
-        loss = torch.mean(real_term + fake_term)
-        return loss
-"""
 
 class GAN:
 
@@ -43,9 +29,13 @@ class GAN:
 
         # For GPU use
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.n_gpu = torch.cuda.device_count()
 
         # Models
         self.discriminator, self.generator = models
+
+        print('Num GPUs:', self.n_gpu)
+
         self.discriminator = self.discriminator.to(self.device)
         self.generator = self.generator.to(self.device)
 
@@ -66,27 +56,34 @@ class GAN:
 
         # Real data is labeled 1. Compute loss
         output_real = self.discriminator(real_data)
+        #loss_real = self.d_criterion(disc=(output_real, 1, 1/9))#output_real, torch.ones(b_size,1).to(self.device))
         loss_real = self.d_criterion(output_real, torch.ones(b_size,1).to(self.device))
 
         # Fake data is labeled 0. Compute loss
         output_fake = self.discriminator(fake_data)
+        #loss_fake = self.d_criterion(disc=(output_fake, -1, 1/9))#output_fake, torch.zeros(b_size,1).to(self.device))
         loss_fake = self.d_criterion(output_fake, torch.zeros(b_size,1).to(self.device))
 
         # Gradient descent
-        loss_real.backward()
-        loss_fake.backward()
+        (1 * (loss_real + loss_fake)).backward()
+        #loss_fake.backward()
         self.d_optimizer.step()
 
-        return float(loss_real) + float(loss_fake)
+        return 1 * (float(loss_real) + float(loss_fake))
 
 
-    def train_generator(self, fake_data, flip=False):
+    def train_generator(self, real_data, fake_data, flip=False):
 
         b_size = fake_data.shape[0]
         self.g_optimizer.zero_grad()
 
         # Generator tries to maximize the value function
+        #real_output = self.discriminator(real_data)
+        #fake_output = self.discriminator(fake_data)
+
         output = self.discriminator(fake_data)
+
+        #loss = self.g_criterion(gen=(real_output.detach(), fake_output))
 
         if flip:
             loss = self.g_criterion(output, torch.ones(b_size,1).to(self.device))
@@ -112,11 +109,15 @@ class GAN:
             fake_data = self.generator(noise_data)
 
             # Compute losses and backpropogate
-            d_losses.append(
-                    self.train_discriminator(real_data, fake_data.detach()) if train_d else -1)
+            d_losses.append(self.train_discriminator(real_data, fake_data.detach()))
 
-            g_losses.append(
-                    self.train_generator(fake_data, flip=flip) if train_d else -1)
+            """
+            for j in range(4):
+                self.train_generator(real_data, fake_data, flip=flip)
+                fake_data = self.generator(noise_data)
+            """
+
+            g_losses.append(self.train_generator(real_data, fake_data, flip=flip))
 
         d_loss, g_loss = np.mean(d_losses), np.mean(g_losses)
 
@@ -131,16 +132,17 @@ class GAN:
 
             print('Epoch', epoch)
 
-            d_loss, g_loss = self.train_loop(train_d=True, train_g=True, flip=flip, epoch=epoch)
+            d_loss, g_loss = self.train_loop(flip=flip, epoch=epoch)
+
+            print()
+            print('Epoch', epoch, 'of', n_epochs)
+            print('-----------------------')
+            print('Discriminator loss:', d_loss)
+            print('Generator loss:', g_loss)
 
             if epoch % epoch_step == 0:
 
                 # Output checkpoint metrics
-                print()
-                print('Epoch', epoch, 'of', n_epochs)
-                print('-----------------------')
-                print('Discriminator loss:', d_loss)
-                print('Generator loss:', g_loss)
                 self.evaluate()
 
                 make_data(self, epoch)
@@ -163,7 +165,9 @@ class GAN:
                 b_size = len(noise_data)
                 features = torch.cat((real_data, self.generator(noise_data)), dim=0)
                 labels += [1] * b_size + [0] * b_size
-                pred = torch.round(self.discriminator(features)).reshape(-1).detach().cpu().tolist()
+                output = self.discriminator(features)
+                #output = nn.Sigmoid()(output)
+                pred = torch.round(output).reshape(-1).detach().cpu().tolist()
                 preds += pred
 
         # Compute metrics
@@ -178,15 +182,18 @@ class GAN:
         self.discriminator.train()
         self.generator.train()
 
-    def get_fake_output(self):
+    def get_fake_output(self, num_samples=None):
 
         self.discriminator.eval()
         self.generator.eval()
 
         with torch.no_grad():
 
+            dataset = (list(self.test_noise_loader.dataset)[:num_samples]
+                                if num_samples is not None else self.test_noise_loader.dataset)
+
             # Generate output for fixed validation noise
-            noise = torch.Tensor([list(t.numpy()) for t in self.test_noise_loader.dataset]).to(self.device)
+            noise = torch.Tensor([list(d.numpy()) for d in dataset]).to(self.device)
             output = self.generator(noise).detach().cpu().numpy()
 
         self.discriminator.train()
@@ -195,7 +202,7 @@ class GAN:
         return output
 
     def get_real_output(self):
-        return torch.concat([t.reshape(1, *t.shape) for t in self.test_real_loader.dataset], dim=0).to(self.device)
+        return torch.concat([t.reshape(1, *t.shape) for t in self.test_real_loader.dataset], dim=0)
 
     def get_decisions(self):
 
