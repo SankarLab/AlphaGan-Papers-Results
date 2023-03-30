@@ -31,17 +31,18 @@ if not args.no_reset:
         writer.writerow(row)
 
 # String of args for single use
-single_params = '--seed 1 --non_saturating --save_bursts --n_epochs 3 --epoch_step 1'
+single_params = '--seed 1 --non_saturating --save_bursts --n_epochs 10 --epoch_step 2 --g_width 8 --d_width 8'
 
 # Grid of hyperparameters for sbatch
 grid = {
-    'seed' : list(range(1,101)),
+    'seed' : list(range(1,11)),
     'non_saturating' : [True],
     'n_epochs' : [200],
     'epoch_step' : [10],
-    'g_lr' : [5e-4],
+    'lr' : [1e-4, 5e-4, 1e-3, 5e-3, 1e-2],
+    'model_width' : [1, 4, 8],
     'g_alpha' : [1],
-    'ls_gan' : [True]
+    'd_alpha' : [0.7, 0.8, 0.9, 1],
 }
 
 

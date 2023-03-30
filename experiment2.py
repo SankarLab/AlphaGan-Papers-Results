@@ -13,6 +13,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 import torchvision.models as models
+import torchvision.utils as vutils
 from torch.utils.data import DataLoader
 import numpy as np
 from scipy.linalg import sqrtm
@@ -43,10 +44,8 @@ parser.set_defaults(save_bursts=False)
 # Training
 parser.add_argument('--n_epochs', type=int, default=50, help='number of epochs for training')
 parser.add_argument('--epoch_step', type=int, default=51, help='number of epochs between validation checkpoints')
-parser.add_argument('--d_lr', type=float, default=1e-3, help='learning rate for discriminator')
-parser.add_argument('--g_lr', type=float, default=1e-3, help='learning rate for generator')
-parser.add_argument('--d_width', type=int, default=1, help='channel multiplier for discriminator')
-parser.add_argument('--g_width', type=int, default=1, help='channel multiplier for generator')
+parser.add_argument('--lr', type=float, default=1e-4, help='learning rate for discriminator & generator')
+parser.add_argument('--model_width', type=int, default=1, help='channel multiplier for discriminator & generator')
 parser.add_argument('--beta1', type=float, default=0.9, help='beta1 parameter for adam optimization')
 
 # Loss function
@@ -101,7 +100,10 @@ def make_stacks(data, data_size):
     stacked_data = stacked_data.reshape(data_size, 3, data.shape[1], data.shape[2])
     return [stacked_data[i, :, :, :] for i in range(data_size)]
 
-transform_data = transforms.Compose([transforms.ToTensor()])
+transform_data = transforms.Compose([
+                                    transforms.ToTensor(),
+                                    transforms.Normalize([0.5], [0.5])
+                                    ])
 
 train_data = [x for x, _ in list(datasets.MNIST('data', download=True, train=True, transform=transform_data))]
 train_data = make_stacks(train_data, args.train_size)
@@ -155,24 +157,32 @@ classifier.eval()
 inception_model = models.inception_v3(weights=models.inception.Inception_V3_Weights.IMAGENET1K_V1)
 inception_model.eval()
 
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
+
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
 
         self.main = nn.Sequential(
-            nn.ConvTranspose2d(args.noise_dim, args.g_width * 32, 3, stride=2, bias=False),
-            nn.BatchNorm2d(args.g_width * 32),
+            nn.ConvTranspose2d(args.noise_dim, args.model_width * 32, 3, stride=2, bias=False),
+            nn.BatchNorm2d(args.model_width * 32),
             nn.ReLU(True),
 
-            nn.ConvTranspose2d(args.g_width * 32, args.g_width * 16, 3, stride=2, bias=False),
-            nn.BatchNorm2d(args.g_width * 16),
+            nn.ConvTranspose2d(args.model_width * 32, args.model_width * 16, 3, stride=2, bias=False),
+            nn.BatchNorm2d(args.model_width * 16),
             nn.ReLU(True),
 
-            nn.ConvTranspose2d(args.g_width * 16, args.g_width * 8, 3, stride=2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(args.g_width * 8),
+            nn.ConvTranspose2d(args.model_width * 16, args.model_width * 8, 3, stride=2, padding=1, output_padding=1, bias=False),
+            nn.BatchNorm2d(args.model_width * 8),
             nn.ReLU(True),
 
-            nn.ConvTranspose2d(args.g_width * 8, 3, 3, stride=2, padding=1, output_padding=1, bias=False),
+            nn.ConvTranspose2d(args.model_width * 8, 3, 3, stride=2, padding=1, output_padding=1, bias=False),
             nn.Tanh()
         )
 
@@ -186,18 +196,18 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
 
         self.main = nn.Sequential(
-            nn.Conv2d(3, args.d_width * 8, 3, stride=2, padding=1, bias=False),
+            nn.Conv2d(3, args.model_width * 8, 3, stride=2, padding=1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Conv2d(args.d_width * 8, args.d_width * 16, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(args.d_width * 16),
+            nn.Conv2d(args.model_width * 8, args.model_width * 16, 3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(args.model_width * 16),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Conv2d(args.d_width * 16, args.d_width * 32, 3, stride=2, bias=False),
-            nn.BatchNorm2d(args.d_width * 32),
+            nn.Conv2d(args.model_width * 16, args.model_width * 32, 3, stride=2, bias=False),
+            nn.BatchNorm2d(args.model_width * 32),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Conv2d(args.d_width * 32, 1, 3, stride=2, bias=False),
+            nn.Conv2d(args.model_width * 32, 1, 3, stride=2, bias=False),
         )
 
         self.sig = (lambda x: x) if args.ls_gan else nn.Sigmoid()
@@ -208,12 +218,14 @@ class Discriminator(nn.Module):
 
 # Define instances
 generator = Generator()
+generator.apply(weights_init)
 discriminator = Discriminator()
+discriminator.apply(weights_init)
 
 # OPTIMIZERS
 
-g_optimizer = optim.Adam(generator.parameters(), lr=args.g_lr, betas=(args.beta1, 0.99))
-d_optimizer = optim.Adam(discriminator.parameters(), lr=args.d_lr, betas=(args.beta1, 0.99))
+g_optimizer = optim.Adam(generator.parameters(), lr=args.lr, betas=(args.beta1, 0.99))
+d_optimizer = optim.Adam(discriminator.parameters(), lr=args.lr, betas=(args.beta1, 0.99))
 
 # LOSS FUNCTION
 
@@ -250,12 +262,11 @@ else:
 
 def make_burst(gan, epoch):
 
-    images = gan.get_fake_output()
+    images = gan.get_fake_output(25)
 
     fig = plt.figure(figsize=(10,10))
-    grid = ImageGrid(fig, 111, nrows_ncols=(5,5), axes_pad=0.1)
-    for i in range(25):
-        grid[i].imshow(np.clip(images[i,:, :, :],0,1).transpose(1,2,0))
+
+    plt.imshow(np.transpose(vutils.make_grid(torch.Tensor(images), nrow=5, padding=2, normalize=True),(1,2,0)))
 
     plt.title('Epoch ' + str(epoch))
     plt.savefig(paths['bursts'] + 'epoch-' + str(epoch) + '.png')
@@ -308,23 +319,31 @@ def compute_metrics(gan, epoch):
 
     # Get real & generated output
     real_images = gan.get_real_output()
-    fake_images = torch.Tensor(gan.get_fake_output()).to(gan.device)
+    fake_images = torch.Tensor(gan.get_fake_output())
+
+    real_loader = DataLoader([real_images[i,:] for i in range(real_images.shape[0])],
+                        batch_size=args.batch_size, shuffle=False)
+    fake_loader = DataLoader([fake_images[i,:] for i in range(fake_images.shape[0])],
+                        batch_size=args.batch_size, shuffle=False)
 
     # FID Score
     global inception_model
     inception_model = inception_model.to(gan.device)
-    preprocess = models.inception.Inception_V3_Weights.IMAGENET1K_V1.transforms()
+    preprocess = transforms.Compose([
+                        transforms.Normalize([0,0,0],[2,2,2]),
+                        transforms.Normalize([-0.5,-0.5,-0.5], [1,1,1]),
+                        models.inception.Inception_V3_Weights.IMAGENET1K_V1.transforms()
+                        ])
 
     real_features, fake_features = [], []
-    batch_size = 32
 
-    for k in tqdm(range(ceil(len(real_images) / batch_size))):
+    for reals, fakes in tqdm(zip(real_loader, fake_loader), total=len(real_loader)):
 
-        real_batch = preprocess(real_images[batch_size*k:batch_size*(k+1),:,:,:])
-        fake_batch = preprocess(fake_images[batch_size*k:batch_size*(k+1),:,:,:])
-        features = inception_model(torch.concat((real_batch, fake_batch), dim=0))
-        real_features.append(features[:batch_size,:].detach().cpu().numpy())
-        fake_features.append(features[batch_size:,:].detach().cpu().numpy())
+        reals = preprocess(reals).to(gan.device)
+        fakes = preprocess(fakes).to(gan.device)
+
+        real_features.append(inception_model(reals).detach().cpu().numpy())
+        fake_features.append(inception_model(fakes).detach().cpu().numpy())
 
     real_features = np.concatenate(real_features, axis=0)
     fake_features = np.concatenate(fake_features, axis=0)
@@ -344,9 +363,15 @@ def compute_metrics(gan, epoch):
     # Mode coverage w/ pretrained classifier
     global classifier
     classifier = classifier.to(gan.device)
+    preprocess = transforms.Compose([
+                        transforms.Normalize([0,0,0],[2,2,2]),
+                        transforms.Normalize([-0.5,-0.5,-0.5], [1,1,1])
+                        ])
+
+    fake_images = preprocess(fake_images)
 
     all_images = torch.concat([fake_images[:, i, :, :] for i in range(3)], dim=0)
-    output = F.softmax(classifier(all_images.reshape(-1, 1, all_images.shape[1], all_images.shape[2])), dim=1)
+    output = F.softmax(classifier(all_images.reshape(-1, 1, all_images.shape[1], all_images.shape[2]).to(gan.device)), dim=1)
 
     confs = np.array(output.amax(dim=1).cpu().tolist()).reshape(3,-1).prod(axis=0)
     labels = np.array(output.argmax(dim=1).cpu().tolist()).reshape(3,-1)

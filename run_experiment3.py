@@ -27,19 +27,18 @@ if not args.no_reset:
         writer.writerow(row)
 
 # String of args for single use
-single_params = '--seed 1 --non_saturating --save_bursts --n_epochs 3 --epoch_step 1'
+single_params = '--seed 1 --non_saturating --save_bursts --n_epochs 200 --epoch_step 10 --ls_gan'
 
 # Grid of hyperparameters for sbatch
 grid = {
-    'seed' : list(range(1,101)),
+    'seed' : list(range(11,21)),
     'non_saturating' : [True],
-    'n_epochs' : [200],
+    'n_epochs' : [100],
     'epoch_step' : [10],
-    'g_lr' : [5e-4],
+    'g_lr' : [1e-4, 2e-4, 5e-4, 6e-4, 7e-4, 8e-4, 9e-4, 1e-3],
     'g_alpha' : [1],
-    'ls_gan' : [True]
+    'd_alpha' : [0.5, 0.6, 0.7, 0.8, 0.9, 1],
 }
-
 
 # Utility function
 def make_sbatch_params(grid):

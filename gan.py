@@ -29,12 +29,9 @@ class GAN:
 
         # For GPU use
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        self.n_gpu = torch.cuda.device_count()
 
         # Models
         self.discriminator, self.generator = models
-
-        print('Num GPUs:', self.n_gpu)
 
         self.discriminator = self.discriminator.to(self.device)
         self.generator = self.generator.to(self.device)
@@ -56,34 +53,24 @@ class GAN:
 
         # Real data is labeled 1. Compute loss
         output_real = self.discriminator(real_data)
-        #loss_real = self.d_criterion(disc=(output_real, 1, 1/9))#output_real, torch.ones(b_size,1).to(self.device))
         loss_real = self.d_criterion(output_real, torch.ones(b_size,1).to(self.device))
 
         # Fake data is labeled 0. Compute loss
         output_fake = self.discriminator(fake_data)
-        #loss_fake = self.d_criterion(disc=(output_fake, -1, 1/9))#output_fake, torch.zeros(b_size,1).to(self.device))
         loss_fake = self.d_criterion(output_fake, torch.zeros(b_size,1).to(self.device))
 
         # Gradient descent
-        (1 * (loss_real + loss_fake)).backward()
-        #loss_fake.backward()
+        (loss_real + loss_fake).backward()
         self.d_optimizer.step()
 
-        return 1 * (float(loss_real) + float(loss_fake))
+        return float(loss_real) + float(loss_fake)
 
-
-    def train_generator(self, real_data, fake_data, flip=False):
+    def train_generator(self, fake_data, flip=False):
 
         b_size = fake_data.shape[0]
         self.g_optimizer.zero_grad()
 
-        # Generator tries to maximize the value function
-        #real_output = self.discriminator(real_data)
-        #fake_output = self.discriminator(fake_data)
-
         output = self.discriminator(fake_data)
-
-        #loss = self.g_criterion(gen=(real_output.detach(), fake_output))
 
         if flip:
             loss = self.g_criterion(output, torch.ones(b_size,1).to(self.device))
@@ -110,14 +97,7 @@ class GAN:
 
             # Compute losses and backpropogate
             d_losses.append(self.train_discriminator(real_data, fake_data.detach()))
-
-            """
-            for j in range(4):
-                self.train_generator(real_data, fake_data, flip=flip)
-                fake_data = self.generator(noise_data)
-            """
-
-            g_losses.append(self.train_generator(real_data, fake_data, flip=flip))
+            g_losses.append(self.train_generator(fake_data, flip=flip))
 
         d_loss, g_loss = np.mean(d_losses), np.mean(g_losses)
 

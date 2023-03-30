@@ -38,7 +38,6 @@ parser.add_argument('--seed', type=int, default=1, help='random seed')
 parser.add_argument('--train_test_split', type=float, default=0.8, help='percentage of train samples')
 parser.add_argument('--noise_dim', type=int, default=100, help='dimensionality of latent noise vectors')
 parser.add_argument('--batch_size', type=int, default=128, help='batch size used during training/testing')
-parser.add_argument('--num_workers', type=int, default=1, help='number of workers for data loaders')
 parser.add_argument('--save_bursts', action='store_true', help='saves the plotted output bursts for each checkpoint')
 parser.set_defaults(save_bursts=False)
 
@@ -62,7 +61,7 @@ args = parser.parse_args()
 
 # DELETE
 args.d_lr = args.g_lr
-args.d_alpha = args.g_alpha
+#args.d_alpha = args.g_alpha
 
 # PATHS
 
@@ -236,35 +235,9 @@ class LSLoss(nn.Module):
     def forward(self, output, labels):
         return 0.5 * torch.mean((output - labels) ** 2)
 
-class DensityLoss(nn.Module):
-
-    def __init__(self):
-        super(DensityLoss, self).__init__()
-
-    def forward(self, gen=None, disc=None):
-
-        if gen is not None:
-            real_output, fake_output = gen
-
-            u1, v1 = real_output.mean(), real_output.var()
-            u2, v2 = fake_output.mean(), fake_output.var()
-        else:
-            output, u1, v1 = disc
-            u2, v2 = output.mean(), output.var()
-
-        loss =  0.5 * (((u1 - u2) ** 2 / v2) + torch.log(2*np.pi*v2) + (v1/v2))
-
-        if loss < 0:
-            print(u1, v1, u2, v2)
-            print(((u1 - u2) ** 2 / v2), torch.log(2*np.pi*v2), (v1/v2))
-            print(loss)
-            exit()
-        return loss
-
-
 if args.ls_gan:
-    d_criterion = DensityLoss()#LSLoss()
-    g_criterion = DensityLoss()#LSLoss()
+    d_criterion = LSLoss()
+    g_criterion = LSLoss()
 else:
     d_criterion = nn.BCELoss() if args.d_alpha == 1 else AlphaLoss(args.d_alpha)
     g_criterion = nn.BCELoss() if args.g_alpha == 1 else AlphaLoss(args.g_alpha)
@@ -341,7 +314,11 @@ def compute_metrics(gan, epoch):
     global inception_model
 
     inception_model = inception_model.to(gan.device)
-    preprocess = models.inception.Inception_V3_Weights.IMAGENET1K_V1.transforms()
+    preprocess = transforms.Compose([
+                        transforms.Normalize([0,0,0],[2,2,2]),
+                        transforms.Normalize([-0.5,-0.5,-0.5], [1,1,1]),
+                        models.inception.Inception_V3_Weights.IMAGENET1K_V1.transforms()
+                        ])
 
     real_features, fake_features = [], []
 
@@ -349,8 +326,6 @@ def compute_metrics(gan, epoch):
 
         reals = preprocess(reals).to(gan.device)
         fakes = preprocess(fakes).to(gan.device)
-        #input = torch.concat((real_batch, fake_batch), dim=0).to(gan.device)
-        #features = inception_model(input)
 
         real_features.append(inception_model(reals).detach().cpu().numpy())
         fake_features.append(inception_model(fakes).detach().cpu().numpy())

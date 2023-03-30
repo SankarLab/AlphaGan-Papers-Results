@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 
 # Parameters
 
-parser = argparse.ArgumentParser(description='CSE 598 Assignment 1 Part 1')
+parser = argparse.ArgumentParser(description='Pretrained classifier for experiment #2')
 
 # Reproducibility
 parser.add_argument('--seed', type=int, default=1, help='random seed')
