@@ -1,6 +1,6 @@
 
 print()
-print('(aD, aG)-GAN Experiment #1: 2D Ring')
+print('(aD, aG)-GAN Experiment: 2D Datasets')
 print('Author: Kyle Otstot')
 print('-------------------------------')
 print()
@@ -9,20 +9,19 @@ import sys
 import argparse
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
 from matplotlib import pyplot as plt
-import seaborn as sns
 import random
 import os
 import time
-import csv
-from gan import *
+
+sys.path.append('..')
+from alphaGAN.gan import *
 
 # PARAMETERS
 
-parser = argparse.ArgumentParser(description='(aD, aG)-GAN Experiment #1')
+parser = argparse.ArgumentParser(description='(aD, aG)-GAN Experiment: 2D Datasets')
 
 # Reproducibility
 parser.add_argument('--seed', type=int, default=1, help='random seed')
@@ -32,20 +31,22 @@ parser.add_argument('--dataset', type=str, default='2Dring', choices={'2Dgrid', 
 parser.add_argument('--train_size', type=int, default=50000, help='number of train examples')
 parser.add_argument('--test_size', type=int, default=25000, help='number of test examples')
 parser.add_argument('--batch_size', type=int, default=128, help='batch size used during training/testing')
-parser.add_argument('--save_bursts', action='store_true', help='saves the plotted output bursts for each checkpoint')
-parser.set_defaults(save_bursts=False)
+parser.add_argument('--save_images', action='store_true', help='saves the plotted output bursts for each checkpoint')
+parser.set_defaults(save_images=False)
 
 # Network settings
-parser.add_argument('--d_layers', type=int, default=2, help='number of hidden layers in discriminator')
-parser.add_argument('--g_layers', type=int, default=2, help='number of hidden layers in generator')
+parser.add_argument('--d_layers', type=int, default=4, help='number of hidden layers in discriminator')
+parser.add_argument('--g_layers', type=int, default=4, help='number of hidden layers in generator')
 parser.add_argument('--d_width', type=int, default=200, help='hidden layer width in discriminator')
 parser.add_argument('--g_width', type=int, default=400, help='hidden layer width in generator')
+parser.add_argument('--beta1', type=float, default=0.9, help='beta1 parameter for adam optimization')
+parser.add_argument('--amp', action='store_true', help='uses automatic mixed precision training')
+parser.set_defaults(amp=False)
 
 # Training
 parser.add_argument('--n_epochs', type=int, default=400, help='number of epochs for training')
 parser.add_argument('--epoch_step', type=int, default=401, help='number of epochs between validation checkpoints')
-parser.add_argument('--d_lr', type=float, default=1e-4, help='learning rate for discriminator')
-parser.add_argument('--g_lr', type=float, default=1e-4, help='learning rate for generator')
+parser.add_argument('--lr', type=float, default=1e-4, help='learning rate for discriminator & generator')
 
 # Loss function
 parser.add_argument('--d_alpha', type=float, default=1.0, help='alpha parameter for discriminator')
@@ -58,21 +59,23 @@ args = parser.parse_args()
 
 # PATHS
 
-setting = '-'.join(sys.argv[1:]).replace('---', '--').replace('--', '-')
+setting = '-'.join(sys.argv[1:])
 
-if 'seed-' not in setting:
-    print('Please specify the seed number as an argument in the command line.')
-    exit()
+while '--' in setting:
+    setting = '-' + setting.replace('--', '-') + '-'
+    setting = setting.strip('--')
 
-setting_split = setting.split('seed-')
-setting = setting_split[0] + '-'.join(setting_split[1].split('-')[1:])
+if 'seed' in setting:
+    s_split = setting.split('-seed-')
+    setting = s_split[0] + '-'.join(s_split[1].split('-')[1:])
 
-unique_setting = setting + '-seed-' + str(args.seed) + '_time-' + str(time.time())
+setting = setting.strip('-')
+unique_setting = setting + '-seed-' + str(args.seed) + '-time-' + str(time.time())
 
-paths = { 'base' : 'experiment/data/' + unique_setting + '/' }
+paths = { 'base' : 'results/data/' + unique_setting + '/' }
 
-if args.save_bursts:
-    paths['bursts'] = paths['base'] + 'bursts/'
+if args.save_images:
+    paths['images'] = paths['base'] + 'images/'
 
 for path in paths.values():
     os.mkdir(path)
@@ -82,7 +85,6 @@ print(unique_setting)
 
 # DATASET
 
-# Fixed seed for dataset generation
 torch.manual_seed(1)
 np.random.seed(1)
 random.seed(1)
@@ -91,7 +93,7 @@ def make_noise(data_size):
 
     data_tensor = torch.randn(data_size, 2)
     data = [data_tensor[i,:] for i in range(data_size)]
-    data_loader = DataLoader(data, batch_size=args.batch_size, shuffle=True)
+    data_loader = DataLoader(data, batch_size=args.batch_size, shuffle=True, pin_memory=True)
     return data_loader
 
 def make_grid():
@@ -116,7 +118,7 @@ def get_data(data_size, modes, probs):
 
     indices = np.random.choice(len(modes), data_size, p=probs)
     data = [modes[i][0] + modes[i][1] * torch.randn(2) for i in indices]
-    data_loader = DataLoader(data, batch_size=args.batch_size, shuffle=True)
+    data_loader = DataLoader(data, batch_size=args.batch_size, shuffle=True, pin_memory=True)
 
     return data_loader
 
@@ -167,9 +169,6 @@ class Discriminator(nn.Module):
 
         layers += [nn.Linear(args.d_width, 1)]
 
-        if not args.ls_gan:
-            layers += [nn.Sigmoid()]
-
         self.main = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -180,45 +179,9 @@ class Discriminator(nn.Module):
 generator = Generator()
 discriminator = Discriminator()
 
-# OPTIMIZERS
+# EVALUATION FUNCTIONS
 
-g_optimizer = optim.Adam(generator.parameters(), lr=args.g_lr)
-d_optimizer = optim.Adam(discriminator.parameters(), lr=args.d_lr)
-
-# LOSS FUNCTION
-
-class AlphaLoss(nn.Module):
-
-    def __init__(self, alpha):
-        super().__init__()
-        self.alpha = alpha
-
-    def forward(self, output, label, ep=1e-7):
-        output = torch.clamp(output, min=ep, max=1 - ep)
-        A = (self.alpha / (self.alpha - 1))
-        real_term = A * (1 - label * (output ** (1/A)))
-        fake_term = -A * ((1 - label) * (1 - output) ** (1/A))
-        loss = torch.mean(real_term + fake_term)
-        return loss
-
-class LSLoss(nn.Module):
-
-    def __init__(self):
-        super(LSLoss, self).__init__()
-
-    def forward(self, output, labels):
-        return 0.5 * torch.mean((output - labels) ** 2)
-
-if args.ls_gan:
-    d_criterion = LSLoss()
-    g_criterion = LSLoss()
-else:
-    d_criterion = nn.BCELoss() if args.d_alpha == 1 else AlphaLoss(args.d_alpha)
-    g_criterion = nn.BCELoss() if args.g_alpha == 1 else AlphaLoss(args.g_alpha)
-
-# MAKE DATA
-
-def make_burst(gan, epoch):
+def visualize_data(gan, epoch):
 
     if epoch < args.n_epochs:
         fig = plt.figure(figsize=(8,6))
@@ -228,7 +191,7 @@ def make_burst(gan, epoch):
     else:
         fig = plt.figure(figsize=(6,6))
 
-    fake_output = gan.get_fake_output()
+    fake_output = gan.get_fake_output().numpy()
     plt.scatter(fake_output[:,0], fake_output[:,1], c=[(0,0,0)], s=0.2)
 
     interval = [-5, 5] if args.dataset == '2Dgrid' else [-2, 2]
@@ -237,15 +200,13 @@ def make_burst(gan, epoch):
 
     plt.title('Epoch ' + str(epoch))
 
-    plt.savefig(paths['bursts'] + 'epoch-' + str(epoch) + '.png')
+    plt.savefig(paths['images'] + 'epoch-' + str(epoch) + '.png')
     plt.clf()
     plt.close(fig)
 
-# METRICS
-
 def compute_metrics(gan, epoch):
 
-    output = gan.get_fake_output()
+    output = gan.get_fake_output().numpy()
     means, stds = [m.numpy() for m, _ in modes], [s for _, s in modes]
     means_dict = { str(mean) : [] for mean in means }
 
@@ -293,47 +254,43 @@ def compute_metrics(gan, epoch):
     if 'epochs' not in gan.metrics:
         gan.metrics['epochs'] = []
 
-    if 'modes' not in gan.metrics:
-        gan.metrics['modes'] = []
-
     gan.metrics['epochs'].append(epoch)
-    gan.metrics['modes'].append(metrics['modes'])
+
+    for metric, val in metrics.items():
+
+        if metric not in gan.metrics:
+            gan.metrics[metric] = []
+
+        gan.metrics[metric].append(val)
+
     gan.metrics['last'] = metrics
 
-def make_data(gan, epoch):
+    print('Modes:', metrics['modes'])
+    print('HQS:', metrics['hqs'])
+    print('KL:', metrics['kl'])
+
+def eval_fn(gan, epoch):
+
+    if args.save_images:
+        visualize_data(gan, epoch)
 
     compute_metrics(gan, epoch)
-
-    if args.save_bursts:
-        make_burst(gan, epoch)
 
 # GAN TRAINING
 
 gan_model = GAN(
                 data_loaders = ((train_noise_loader, train_real_loader), (test_noise_loader, test_real_loader)),
-                models = (discriminator, generator),
-                optimizers = (d_optimizer, g_optimizer),
-                criteria = (d_criterion, g_criterion),
-                dataset_name = args.dataset
+                gan_models = (discriminator, generator),
+                lr = args.lr, beta1 = args.beta1,
+                d_alpha = args.d_alpha if not args.ls_gan else None,
+                g_alpha = args.g_alpha if not args.ls_gan else None,
+                dataset_name = args.dataset,
+                amp = args.amp
                 )
 
 gan_model.train(n_epochs=args.n_epochs, epoch_step=args.epoch_step,
-                                            seed=args.seed,
                                             flip=args.non_saturating,
-                                            make_data=make_data
+                                            eval_fn=eval_fn
                                             )
 
-M = gan_model.metrics['last']
-
-row = [setting, args.seed, M['modes'], M['hqs'], M['kl'], M['rkl'], M['jsd'], M['tvd']]
-
-with open('experiment/metrics.csv', 'a') as f:
-    writer = csv.writer(f)
-    writer.writerow(row)
-
-with open(paths['base'] + 'metrics.csv', 'w') as f:
-    f.write(str(gan_model.metrics))
-
-print()
-print('--------------------')
-print('Metrics:', M)
+gan_model.store_results(setting=setting, args=args, paths=paths)
