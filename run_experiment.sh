@@ -11,6 +11,6 @@
 #SBATCH -e results/errors/%j.err
 
 module load mamba/latest
-source activate deep_learning
-/home/kotstot/.conda/envs/deep_learning/bin/python3 experiments/$1
+source activate lsankar_env
+python3 experiments/$1
 source deactivate

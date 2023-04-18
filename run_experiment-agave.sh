@@ -10,6 +10,6 @@
 #SBATCH -e results/error/%j.err
 
 module load anaconda/py3
-source activate pytorch_env
+source activate lsankar_env
 python3 experiments/$1
 conda deactivate
