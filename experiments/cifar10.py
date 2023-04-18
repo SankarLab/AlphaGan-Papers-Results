@@ -38,7 +38,7 @@ parser.add_argument('--n_epochs', type=int, default=50, help='number of epochs f
 parser.add_argument('--epoch_step', type=int, default=51, help='number of epochs between validation checkpoints')
 parser.add_argument('--lr', type=float, default=1e-4, help='learning rate for discriminator & generator')
 parser.add_argument('--model_width', type=int, default=64, help='channel multiplier for discriminator & generator')
-parser.add_argument('--beta1', type=float, default=0.5, help='beta1 parameter for adam optimization')
+parser.add_argument('--beta1', type=float, default=0.9, help='beta1 parameter for adam optimization')
 parser.add_argument('--amp', action='store_true', help='uses automatic mixed precision training')
 parser.set_defaults(amp=False)
 
