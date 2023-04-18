@@ -5,7 +5,8 @@ import csv
 import argparse
 
 parser = argparse.ArgumentParser(description='Run (aD, aG)-GAN Experiments')
-parser.add_argument('--experiment', type=str, default=None, help='experiment to run')
+parser.add_argument('--experiment', type=str, default=None,
+    choices={'2D', 'stacked_mnist', 'cfiar10', 'celeba', 'lsun_classroom'}, help='experiment to run')
 parser.add_argument('--sbatch', action='store_true', help='run parameter grid on sbatch')
 parser.add_argument('--no_reset', action='store_true', help='don\'t clear the results directory')
 parser.set_defaults(sbatch=False, no_reset=False)
