@@ -22,39 +22,37 @@ from tqdm import tqdm
 from sklearn.metrics import confusion_matrix
 import os
 import csv
-
-# LOSS FUNCTIONS
-
-class AlphaLoss(nn.Module):
-
-    def __init__(self, alpha, ep):
-        super().__init__()
-        self.alpha = alpha
-        self.sigmoid = nn.Sigmoid()
-        self.bce = nn.BCEWithLogitsLoss()
-        self.ep = ep
-
-    def forward(self, logits, labels):
-
-        if self.alpha == 1:
-            return self.bce(logits, labels)
-
-        output = torch.clamp(self.sigmoid(logits), min=self.ep, max=1 - self.ep)
-        A = (self.alpha / (self.alpha - 1))
-        real_term = A * (1 - labels * (output ** (1/A)))
-        fake_term = -A * ((1 - labels) * (1 - output) ** (1/A))
-        loss = torch.mean(real_term + fake_term)
-        return loss
-
-class LSLoss(nn.Module):
-
-    def __init__(self):
-        super(LSLoss, self).__init__()
-
-    def forward(self, output, labels):
-        return 0.5 * torch.mean((output - labels) ** 2)
+import time
 
 # UTILITY FUNCTIONS
+
+def create_setting(args, argv):
+
+    setting = '-'.join(argv)
+
+    while '--' in setting:
+        setting = '-' + setting.replace('--', '-') + '-'
+        setting = setting.strip('--')
+
+    if 'seed' in setting:
+        s_split = setting.split('-seed-')
+        setting = s_split[0] + '-'.join(s_split[1].split('-')[1:])
+
+    setting = setting.strip('-')
+    unique_setting = setting + '-seed-' + str(args.seed) + '-time-' + str(time.time())
+
+    paths = { 'base' : 'results/data/' + unique_setting + '/' }
+
+    if args.save_images:
+        paths['images'] = paths['base'] + 'images/'
+
+    for path in paths.values():
+        os.mkdir(path)
+
+    print('Setting:')
+    print(unique_setting)
+
+    return setting, paths
 
 def weights_init(m):
     classname = m.__class__.__name__
@@ -103,6 +101,37 @@ def compute_FID(mu1, sigma1, mu2, sigma2, eps=1e-6):
 
     return (diff.dot(diff) + np.trace(sigma1) +
             np.trace(sigma2) - 2 * tr_covmean)
+
+# LOSS FUNCTIONS
+
+class AlphaLoss(nn.Module):
+
+    def __init__(self, alpha, ep):
+        super().__init__()
+        self.alpha = alpha
+        self.sigmoid = nn.Sigmoid()
+        self.bce = nn.BCEWithLogitsLoss()
+        self.ep = ep
+
+    def forward(self, logits, labels):
+
+        if self.alpha == 1:
+            return self.bce(logits, labels)
+
+        output = torch.clamp(self.sigmoid(logits), min=self.ep, max=1 - self.ep)
+        A = (self.alpha / (self.alpha - 1))
+        real_term = A * (1 - labels * (output ** (1/A)))
+        fake_term = -A * ((1 - labels) * (1 - output) ** (1/A))
+        loss = torch.mean(real_term + fake_term)
+        return loss
+
+class LSLoss(nn.Module):
+
+    def __init__(self):
+        super(LSLoss, self).__init__()
+
+    def forward(self, output, labels):
+        return 0.5 * torch.mean((output - labels) ** 2)
 
 # BASE GAN CLASS
 
@@ -248,6 +277,8 @@ class GAN:
         self.discriminator.train()
         self.generator.train()
 
+        start_time = time.time()
+
         for epoch in range(1, n_epochs+1):
 
             print('Epoch', epoch)
@@ -265,6 +296,9 @@ class GAN:
                 # Output checkpoint metrics
                 self.evaluate()
                 eval_fn(self, epoch)
+
+        end_time = time.time()
+        self.metrics['time'] = int(end_time - start_time)
 
     def evaluate(self):
 

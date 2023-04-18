@@ -15,7 +15,6 @@ from torch.utils.data import DataLoader
 import numpy as np
 import random
 import os
-import time
 from tqdm import tqdm
 
 sys.path.append('..')
@@ -56,29 +55,7 @@ args = parser.parse_args()
 
 # PATHS
 
-setting = '-'.join(sys.argv[1:])
-
-while '--' in setting:
-    setting = '-' + setting.replace('--', '-') + '-'
-    setting = setting.strip('--')
-
-if 'seed' in setting:
-    s_split = setting.split('-seed-')
-    setting = s_split[0] + '-'.join(s_split[1].split('-')[1:])
-
-setting = setting.strip('-')
-unique_setting = setting + '-seed-' + str(args.seed) + '-time-' + str(time.time())
-
-paths = { 'base' : 'results/data/' + unique_setting + '/' }
-
-if args.save_images:
-    paths['images'] = paths['base'] + 'images/'
-
-for path in paths.values():
-    os.mkdir(path)
-
-print('Setting:')
-print(unique_setting)
+setting, paths = create_setting(args, sys.argv[1:])
 
 # DATASET
 
