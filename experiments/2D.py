@@ -15,6 +15,7 @@ from matplotlib import pyplot as plt
 import random
 import os
 
+# IMPORTANT: Change "alphaGAN" to your project (base) directory name
 sys.path.append('..')
 from alphaGAN.gan import *
 

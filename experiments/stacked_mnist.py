@@ -17,6 +17,7 @@ import random
 import os
 from tqdm import tqdm
 
+# IMPORTANT: Change "alphaGAN" to your project (base) directory name
 sys.path.append('..')
 from alphaGAN.gan import *
 
