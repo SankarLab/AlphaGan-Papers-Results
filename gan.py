@@ -34,6 +34,8 @@ def create_setting(args, argv):
         setting = '-' + setting.replace('--', '-') + '-'
         setting = setting.strip('--')
 
+    setting = '-' + setting.strip('-') + '-'
+
     if 'seed' in setting:
         s_split = setting.split('-seed-')
         setting = s_split[0] + '-'.join(s_split[1].split('-')[1:])
