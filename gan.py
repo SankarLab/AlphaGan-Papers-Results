@@ -112,13 +112,13 @@ class AlphaLoss(nn.Module):
         super().__init__()
         self.alpha = alpha
         self.sigmoid = nn.Sigmoid()
-        self.bce = nn.BCEWithLogitsLoss()
+        self.bce = nn.BCELoss()
         self.ep = ep
 
     def forward(self, logits, labels):
 
         if self.alpha == 1:
-            return self.bce(logits, labels)
+            return self.bce(self.sigmoid(logits), labels)
 
         output = torch.clamp(self.sigmoid(logits), min=self.ep, max=1 - self.ep)
         A = (self.alpha / (self.alpha - 1))
