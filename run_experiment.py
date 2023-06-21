@@ -24,17 +24,31 @@ if not args.no_reset:
     os.mkdir('results/data')
 
 # String of args for single use
-single_params = '--lr 1e-4 --seed 1 --d_alpha 1 --g_alpha 1 --non_saturating --save_images --n_epochs 5 --epoch_step 5'
+single_params = '--seed 1 --lr 1e-4 --d_alpha 1 --g_alpha 1 --non_saturating --save_images --n_epochs 5 --epoch_step 5'
 
 # Grid of hyperparameters for sbatch
+"""
 grid = {
-    'seed' : [1, 2, 3],
+    'seed' : list(range(1, 51)),
     'non_saturating' : [True],
-    'n_epochs' : [5],
-    'epoch_step' : [1],
-    'lr' : [1e-4],
-    'g_alpha' : [1],
+    'n_epochs' : [150],
+    'epoch_step' : [10],
+    'lr' : [1e-4, 2e-4, 5e-4, 6e-4, 7e-4, 8e-4, 9e-4, 1e-3],
     'd_alpha' : [1],
+    'g_alpha' : [1],
+    'ls_gan' : [True],
+    'amp' : [True]
+}
+"""
+
+grid = {
+    'seed' : list(range(1, 41)),
+    'non_saturating' : [True],
+    'n_epochs' : [150],
+    'epoch_step' : [10],
+    'lr' : [1e-4, 2e-4, 3e-4, 4e-4, 5e-4],
+    'd_alpha' : [0.6],
+    'g_alpha' : [1.05, 1.1, 1.2],
 }
 
 # Utility function
